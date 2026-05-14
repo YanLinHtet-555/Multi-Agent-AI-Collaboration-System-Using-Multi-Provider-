@@ -47,6 +47,116 @@ Agents do not talk directly to each other. Instead the Manager stores intermedia
 
 ---
 
+## System Architecture
+
+### High-level layout
+
+```text
+┌─────────────────────────────────────────────────────────────────────┐
+│                          User / CLI                                  │
+│                  python main.py -q "your query"                      │
+└─────────────────────────────┬───────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Manager Agent                                 │
+│                                                                      │
+│  • Reads the query                                                   │
+│  • Decides which agents to call and in what order                    │
+│  • Passes context between agents via Shared Memory                   │
+│  • Enforces review cycles (Coder → Reviewer → Coder if needed)      │
+│  • Synthesizes all outputs into a final response                     │
+└────┬──────────────┬──────────────┬──────────────┬───────────────────┘
+     │  tool call   │  tool call   │  tool call   │  tool call
+     ▼              ▼              ▼              ▼
+┌─────────┐   ┌──────────┐   ┌─────────┐   ┌──────────┐
+│ Planner │   │Researcher│   │  Coder  │   │ Reviewer │
+│         │   │          │   │         │   │          │
+│ Breaks  │   │ Gathers  │   │ Writes  │   │ Reviews  │
+│ task    │   │ info &   │   │ working │   │ code for │
+│ into    │   │ best     │   │ code    │   │ bugs &   │
+│ phases  │   │ practices│   │         │   │ quality  │
+└────┬────┘   └────┬─────┘   └────┬────┘   └────┬─────┘
+     │              │              │              │
+     └──────────────┴──────┬───────┴──────────────┘
+                           │ read / write
+                           ▼
+              ┌────────────────────────┐
+              │     Shared Memory      │
+              │  key-value store for   │
+              │  cross-agent context   │
+              │  (plan, research,      │
+              │   code drafts, etc.)   │
+              └────────────────────────┘
+```
+
+### Provider layer
+
+Each agent connects to its own independently configured AI provider. All four providers expose the same unified interface to the agents.
+
+```text
+┌─────────┐   ┌──────────┐   ┌─────────┐   ┌──────────┐
+│ Planner │   │Researcher│   │  Coder  │   │ Reviewer │
+└────┬────┘   └────┬─────┘   └────┬────┘   └────┬─────┘
+     │              │              │              │
+     ▼              ▼              ▼              ▼
+┌─────────┐   ┌──────────┐   ┌──────────┐  ┌──────────┐
+│  Groq   │   │  Google  │   │Anthropic │  │Anthropic │
+│  Llama  │   │  Gemini  │   │  Claude  │  │  Claude  │
+└─────────┘   └──────────┘   └──────────┘  └──────────┘
+
+           All routed through BaseProvider interface:
+           create_chat_completion(model, messages, tools)
+```
+
+### Code structure
+
+```text
+providers/
+  base_provider.py      ← unified interface + response types
+  groq_provider.py      ─┐
+  openai_provider.py     ├─ implement BaseProvider
+  anthropic_provider.py  │  (message format conversion,
+  google_provider.py    ─┘   error normalisation)
+  __init__.py           ← get_provider() factory reads .env
+
+agents/
+  base_agent.py         ← holds a provider, calls create_chat_completion()
+  manager_agent.py      ← orchestration loop + tool execution
+  planner_agent.py      ─┐
+  research_agent.py      ├─ extend BaseAgent, each with own provider
+  coder_agent.py         │
+  reviewer_agent.py     ─┘
+
+core/
+  shared_memory.py      ← thread-safe dict, read/write by Manager tools
+
+tools/
+  search_tool.py        ← web search (used by Researcher)
+
+main.py                 ← CLI, loads .env, builds ManagerAgent, runs query
+```
+
+### Request lifecycle
+
+```text
+main.py
+  └─ ManagerAgent.orchestrate(query)
+       └─ loop: provider.create_chat_completion(MANAGER_TOOLS)
+            ├─ finish_reason == "tool_calls"
+            │    ├─ call_planner      → PlannerAgent.run()
+            │    ├─ call_researcher   → ResearchAgent.run_with_tools()
+            │    │    └─ tool: search_web()
+            │    ├─ call_coder        → CoderAgent.run()
+            │    ├─ call_reviewer     → ReviewerAgent.run()
+            │    ├─ store_memory      → SharedMemory.write()
+            │    └─ read_memory       → SharedMemory.read()
+            └─ finish_reason == "stop"
+                 └─ return final response to user
+```
+
+---
+
 ## Supported Providers
 
 Each agent can be assigned its own provider. You only need API keys for the providers you actually use.
