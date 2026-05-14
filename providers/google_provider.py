@@ -22,6 +22,10 @@ class GoogleProvider(BaseProvider):
         )
 
     @property
+    def name(self) -> str:
+        return "google"
+
+    @property
     def default_model(self) -> str:
         return "gemini-1.5-flash"
 

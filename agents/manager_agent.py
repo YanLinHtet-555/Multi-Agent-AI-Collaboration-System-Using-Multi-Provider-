@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import time
 from typing import Optional
@@ -162,17 +163,31 @@ class ManagerAgent:
         self,
         provider: Optional[BaseProvider] = None,
         agent_provider: Optional[BaseProvider] = None,
+        planner_provider: Optional[BaseProvider] = None,
+        researcher_provider: Optional[BaseProvider] = None,
+        coder_provider: Optional[BaseProvider] = None,
+        reviewer_provider: Optional[BaseProvider] = None,
     ):
         self.name = "Manager"
-        self.provider = provider or get_provider()
+
+        # Resolution order: explicit param > named env var > agent_provider > AI_PROVIDER/groq
+        def _resolve(explicit: Optional[BaseProvider], env_key: str) -> BaseProvider:
+            if explicit:
+                return explicit
+            if agent_provider:
+                return agent_provider
+            name = os.getenv(env_key) or os.getenv("AI_PROVIDER", "groq")
+            return get_provider(name)
+
+        manager_name = os.getenv("MANAGER_PROVIDER") or os.getenv("AI_PROVIDER", "groq")
+        self.provider = provider or get_provider(manager_name)
         self.model = self.provider.manager_model
 
-        _agent_prov = agent_provider or self.provider
         self.shared_memory = SharedMemory()
-        self.planner = PlannerAgent(provider=_agent_prov)
-        self.researcher = ResearchAgent(provider=_agent_prov)
-        self.coder = CoderAgent(provider=_agent_prov)
-        self.reviewer = ReviewerAgent(provider=_agent_prov)
+        self.planner = PlannerAgent(provider=_resolve(planner_provider, "PLANNER_PROVIDER"))
+        self.researcher = ResearchAgent(provider=_resolve(researcher_provider, "RESEARCHER_PROVIDER"))
+        self.coder = CoderAgent(provider=_resolve(coder_provider, "CODER_PROVIDER"))
+        self.reviewer = ReviewerAgent(provider=_resolve(reviewer_provider, "REVIEWER_PROVIDER"))
 
     @staticmethod
     def _trim_messages(messages: list, window: int = 12) -> list:
@@ -233,7 +248,7 @@ class ManagerAgent:
 
     def orchestrate(self, user_query: str, verbose: bool = True) -> str:
         if verbose:
-            print(f"\n[Manager] Starting orchestration for: {user_query[:80]}...")
+            print(f"\n[Manager/{self.provider.name}] Starting orchestration for: {user_query[:80]}...")
 
         messages = [
             {"role": "system", "content": MANAGER_SYSTEM_PROMPT},
@@ -326,22 +341,22 @@ class ManagerAgent:
 
         if tool_name == "call_planner":
             if verbose:
-                print(f"  [Planner] Planning: {task[:60]}...")
+                print(f"  [Planner/{self.planner.provider.name}] Planning: {task[:60]}...")
             return self.planner.run(task, context)
 
         elif tool_name == "call_researcher":
             if verbose:
-                print(f"  [Researcher] Researching: {task[:60]}...")
+                print(f"  [Researcher/{self.researcher.provider.name}] Researching: {task[:60]}...")
             return self.researcher.run_with_tools(task, context)
 
         elif tool_name == "call_coder":
             if verbose:
-                print(f"  [Coder] Implementing: {task[:60]}...")
+                print(f"  [Coder/{self.coder.provider.name}] Implementing: {task[:60]}...")
             return self.coder.run(task, context)
 
         elif tool_name == "call_reviewer":
             if verbose:
-                print(f"  [Reviewer] Reviewing submission...")
+                print(f"  [Reviewer/{self.reviewer.provider.name}] Reviewing submission...")
             return self.reviewer.run(task, context)
 
         elif tool_name == "store_memory":

@@ -16,6 +16,10 @@ class OpenAIProvider(BaseProvider):
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
     @property
+    def name(self) -> str:
+        return "openai"
+
+    @property
     def default_model(self) -> str:
         return "gpt-4o-mini"
 

@@ -15,6 +15,10 @@ class AnthropicProvider(BaseProvider):
         self.client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
     @property
+    def name(self) -> str:
+        return "anthropic"
+
+    @property
     def default_model(self) -> str:
         return "claude-haiku-4-5-20251001"
 

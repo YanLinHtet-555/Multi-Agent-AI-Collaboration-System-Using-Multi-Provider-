@@ -46,6 +46,11 @@ class ProviderBadRequestError(Exception):
 class BaseProvider(ABC):
     @property
     @abstractmethod
+    def name(self) -> str:
+        pass
+
+    @property
+    @abstractmethod
     def default_model(self) -> str:
         pass
 

@@ -16,6 +16,10 @@ class GroqProvider(BaseProvider):
         self.client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
     @property
+    def name(self) -> str:
+        return "groq"
+
+    @property
     def default_model(self) -> str:
         return "llama-3.1-8b-instant"
 
