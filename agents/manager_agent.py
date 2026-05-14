@@ -1,7 +1,10 @@
 import json
 import re
 import time
-from groq import Groq, BadRequestError, RateLimitError
+from typing import Optional
+
+from providers import get_provider
+from providers.base_provider import BaseProvider, ProviderBadRequestError, ProviderRateLimitError
 
 from core import SharedMemory
 from .planner_agent import PlannerAgent
@@ -155,15 +158,21 @@ MANAGER_TOOLS = [
 class ManagerAgent:
     MAX_ITERATIONS = 10
 
-    def __init__(self):
+    def __init__(
+        self,
+        provider: Optional[BaseProvider] = None,
+        agent_provider: Optional[BaseProvider] = None,
+    ):
         self.name = "Manager"
-        self.model = "llama-3.3-70b-versatile"
-        self.client = Groq()
+        self.provider = provider or get_provider()
+        self.model = self.provider.manager_model
+
+        _agent_prov = agent_provider or self.provider
         self.shared_memory = SharedMemory()
-        self.planner = PlannerAgent()
-        self.researcher = ResearchAgent()
-        self.coder = CoderAgent()
-        self.reviewer = ReviewerAgent()
+        self.planner = PlannerAgent(provider=_agent_prov)
+        self.researcher = ResearchAgent(provider=_agent_prov)
+        self.coder = CoderAgent(provider=_agent_prov)
+        self.reviewer = ReviewerAgent(provider=_agent_prov)
 
     @staticmethod
     def _trim_messages(messages: list, window: int = 12) -> list:
@@ -174,14 +183,13 @@ class ManagerAgent:
 
     @staticmethod
     def _parse_llama_tool_calls(text: str) -> list:
-        """Parse all Llama-style function call variants from text."""
+        """Parse Llama-style function call variants from text (Groq recovery only)."""
         calls = []
-        # Try each known format in order of specificity
         for pattern in [
-            r'<function=(\w+)\((\{.+?\})\)\s*>',        # <function=name(json)>
-            r'<function=(\w+),(\{.+?\})\s*</function>',  # <function=name,json</function>
-            r'<function=(\w+),(\{.+?\})\s*>',            # <function=name,json>
-            r'<function=(\w+),(\{.+?\})',                 # <function=name,json  (no closing)
+            r'<function=(\w+)\((\{.+?\})\)\s*>',
+            r'<function=(\w+),(\{.+?\})\s*</function>',
+            r'<function=(\w+),(\{.+?\})\s*>',
+            r'<function=(\w+),(\{.+?\})',
         ]:
             for m in re.finditer(pattern, text, re.DOTALL):
                 try:
@@ -192,10 +200,11 @@ class ManagerAgent:
                 break
         return calls
 
-    def _recover_from_bad_request(self, error: BadRequestError, messages: list, verbose: bool) -> list | None:
-        """If Groq returns tool_use_failed, parse failed_generation and inject results."""
-        body = getattr(error, "body", {}) or {}
-        failed_gen = body.get("error", {}).get("failed_generation", "")
+    def _recover_from_bad_request(
+        self, error: ProviderBadRequestError, messages: list, verbose: bool
+    ) -> list | None:
+        """Attempt to recover from a malformed tool call (Groq/Llama specific)."""
+        failed_gen = error.body.get("error", {}).get("failed_generation", "")
         if not failed_gen:
             return None
 
@@ -238,21 +247,21 @@ class ManagerAgent:
 
             for attempt in range(3):
                 try:
-                    response = self.client.chat.completions.create(
+                    response = self.provider.create_chat_completion(
                         model=self.model,
                         messages=self._trim_messages(messages),
                         tools=MANAGER_TOOLS,
                         tool_choice="auto",
                     )
                     break
-                except RateLimitError as e:
+                except ProviderRateLimitError as e:
                     wait = 2 ** attempt
                     if verbose:
                         print(f"\n[Manager] Rate limited — retrying in {wait}s...")
                     time.sleep(wait)
                     if attempt == 2:
                         return last_text or str(e)
-                except BadRequestError as e:
+                except ProviderBadRequestError as e:
                     recovered = self._recover_from_bad_request(e, messages, verbose)
                     if recovered is not None:
                         messages = recovered

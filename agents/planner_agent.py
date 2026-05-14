@@ -1,3 +1,6 @@
+from typing import Optional
+
+from providers.base_provider import BaseProvider
 from .base_agent import BaseAgent
 
 PLANNER_SYSTEM_PROMPT = """You are an expert Project Planner AI agent. Your role is to analyze
@@ -37,9 +40,10 @@ Output format:
 
 
 class PlannerAgent(BaseAgent):
-    def __init__(self):
+    def __init__(self, provider: Optional[BaseProvider] = None):
         super().__init__(
             name="Planner",
             role="Task decomposition and execution planning",
             system_prompt=PLANNER_SYSTEM_PROMPT,
+            provider=provider,
         )

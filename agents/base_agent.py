@@ -1,6 +1,8 @@
 import json
-from groq import Groq
 from typing import Dict, List, Optional
+
+from providers import get_provider
+from providers.base_provider import BaseProvider
 
 
 class BaseAgent:
@@ -10,15 +12,16 @@ class BaseAgent:
         role: str,
         system_prompt: str,
         tools: Optional[List[Dict]] = None,
-        model: str = "llama-3.1-8b-instant",
+        model: Optional[str] = None,
+        provider: Optional[BaseProvider] = None,
     ):
         self.name = name
         self.role = role
         self.system_prompt = system_prompt
         self.tools = tools or []
-        self.model = model
+        self.provider = provider or get_provider()
+        self.model = model or self.provider.default_model
         self.memory: List[Dict] = []
-        self.client = Groq()
 
     def run(self, task: str, context: str = "") -> str:
         user_message = f"{context}\n\nTask: {task}" if context else task
@@ -27,7 +30,7 @@ class BaseAgent:
             {"role": "user", "content": user_message},
         ]
 
-        response = self.client.chat.completions.create(
+        response = self.provider.create_chat_completion(
             model=self.model,
             messages=messages,
         )
@@ -47,15 +50,11 @@ class BaseAgent:
         ]
 
         while True:
-            kwargs = {}
-            if self.tools:
-                kwargs["tools"] = self.tools
-                kwargs["tool_choice"] = "auto"
-
-            response = self.client.chat.completions.create(
+            response = self.provider.create_chat_completion(
                 model=self.model,
                 messages=messages,
-                **kwargs,
+                tools=self.tools or None,
+                tool_choice="auto" if self.tools else None,
             )
 
             choice = response.choices[0]

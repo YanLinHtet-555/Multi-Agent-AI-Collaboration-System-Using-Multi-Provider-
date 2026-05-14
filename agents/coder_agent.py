@@ -1,3 +1,6 @@
+from typing import Optional
+
+from providers.base_provider import BaseProvider
 from .base_agent import BaseAgent
 
 CODER_SYSTEM_PROMPT = """You are an expert Software Engineer AI agent. Your role is to write
@@ -42,9 +45,10 @@ Output format:
 
 
 class CoderAgent(BaseAgent):
-    def __init__(self):
+    def __init__(self, provider: Optional[BaseProvider] = None):
         super().__init__(
             name="Coder",
             role="Code generation and implementation",
             system_prompt=CODER_SYSTEM_PROMPT,
+            provider=provider,
         )

@@ -1,3 +1,6 @@
+from typing import Optional
+
+from providers.base_provider import BaseProvider
 from .base_agent import BaseAgent
 
 REVIEWER_SYSTEM_PROMPT = """You are an expert Code Reviewer and Quality Assurance AI agent.
@@ -48,9 +51,10 @@ Output format:
 
 
 class ReviewerAgent(BaseAgent):
-    def __init__(self):
+    def __init__(self, provider: Optional[BaseProvider] = None):
         super().__init__(
             name="Reviewer",
             role="Code review and quality assurance",
             system_prompt=REVIEWER_SYSTEM_PROMPT,
+            provider=provider,
         )

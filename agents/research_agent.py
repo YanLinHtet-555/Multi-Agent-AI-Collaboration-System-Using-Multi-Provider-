@@ -1,6 +1,7 @@
-from typing import Dict
+from typing import Dict, Optional
 
 from tools import search_web
+from providers.base_provider import BaseProvider
 from .base_agent import BaseAgent
 
 RESEARCH_SYSTEM_PROMPT = """You are an expert Research AI agent. Your role is to gather,
@@ -61,12 +62,13 @@ SEARCH_TOOL = {
 
 
 class ResearchAgent(BaseAgent):
-    def __init__(self):
+    def __init__(self, provider: Optional[BaseProvider] = None):
         super().__init__(
             name="Researcher",
             role="Information gathering and synthesis",
             system_prompt=RESEARCH_SYSTEM_PROMPT,
             tools=[SEARCH_TOOL],
+            provider=provider,
         )
 
     def _handle_tool(self, tool_name: str, tool_input: Dict) -> str:
