@@ -4,38 +4,69 @@ A multi-agent AI system where specialized agents collaborate to solve complex ta
 
 ---
 
-## How it works
+## Overview
 
-A **Manager Agent** orchestrates a team of four specialized agents via tool calls:
+This system takes a user query — such as *"Build a FastAPI todo app"* — and routes it through a team of specialized AI agents, each doing a focused job. The agents talk to each other through a shared memory store and a tool-call protocol managed by the Manager.
 
-| Agent | Role |
-| --- | --- |
-| **Manager** | Orchestrates the team, decides who does what |
-| **Planner** | Decomposes complex tasks into phased execution plans |
-| **Researcher** | Gathers and synthesizes information via web search |
-| **Coder** | Writes complete, production-ready code |
-| **Reviewer** | Reviews code for correctness, quality, and security |
+**What you get as output** is a final synthesized response from the Manager — for coding tasks that means complete, reviewed, copy-paste-ready code with dependencies and usage instructions. For research tasks it is a structured report. For mixed tasks it is both.
 
-Each agent can be backed by a **different provider**, so you can assign the best model to each role:
+### Full flow for a coding task
 
 ```text
-Manager    → OpenAI    (GPT-4o      — best at orchestration)
-Planner    → Groq      (Llama       — fast and free)
-Researcher → Google    (Gemini      — strong factual recall)
-Coder      → Anthropic (Claude      — excellent at code)
-Reviewer   → Anthropic (Claude      — excellent at code review)
+You type:  "Build a Python REST API with FastAPI"
+
+1. Manager    reads the query and decides on a plan
+2. Planner    breaks the task into phases and subtasks
+3. Researcher looks up best practices and relevant patterns
+4. Manager    stores the research findings in shared memory
+5. Coder      reads the plan + research, writes the full implementation
+6. Reviewer   checks the code for bugs, security issues, and quality
+              ↓ if issues found → Coder rewrites → Reviewer re-checks (up to 3 cycles)
+7. Manager    synthesizes everything into a final response
+
+FINAL RESULT:
+  - Complete working code (ready to copy and run)
+  - Dependencies list
+  - Usage / run instructions
+  - Reviewer notes
 ```
+
+### What each agent does
+
+| Agent | What it does | Output |
+| --- | --- | --- |
+| **Manager** | Orchestrates the team, decides who does what and when | Final synthesized response |
+| **Planner** | Breaks the task into phases and subtasks | Structured execution plan |
+| **Researcher** | Gathers information and best practices | Research report |
+| **Coder** | Writes production-ready code from the plan | Full code implementation |
+| **Reviewer** | Reviews code for bugs, security, and quality | APPROVED / CHANGES REQUESTED verdict |
+
+### Shared memory
+
+Agents do not talk directly to each other. Instead the Manager stores intermediate results (research findings, plans, code drafts) in a shared memory store and passes them as context when calling the next agent. This keeps each agent focused and the conversation clean.
 
 ---
 
 ## Supported Providers
 
-| Provider | Manager Model | Agent Model | Env Key |
+Each agent can be assigned its own provider. You only need API keys for the providers you actually use.
+
+| Provider | Manager Model | Agent Model | API Key |
 | --- | --- | --- | --- |
 | `groq` (default) | `llama-3.3-70b-versatile` | `llama-3.1-8b-instant` | `GROQ_API_KEY` |
 | `openai` | `gpt-4o` | `gpt-4o-mini` | `OPENAI_API_KEY` |
 | `anthropic` | `claude-sonnet-4-6` | `claude-haiku-4-5-20251001` | `ANTHROPIC_API_KEY` |
 | `google` | `gemini-1.5-pro` | `gemini-1.5-flash` | `GOOGLE_API_KEY` |
+
+Best-fit assignment example:
+
+```text
+Manager    → OpenAI    (GPT-4o  — best at reasoning and orchestration)
+Planner    → Groq      (Llama   — fast and free)
+Researcher → Google    (Gemini  — strong factual recall)
+Coder      → Anthropic (Claude  — excellent at writing code)
+Reviewer   → Anthropic (Claude  — excellent at reviewing code)
+```
 
 ---
 
@@ -70,6 +101,42 @@ OPENAI_API_KEY=your_openai_key_here
 ANTHROPIC_API_KEY=your_anthropic_key_here
 GOOGLE_API_KEY=your_google_key_here
 ```
+
+---
+
+## Changing providers — only edit `.env`
+
+You never need to touch the code. All provider routing is controlled from `.env`.
+
+**Use one provider for all agents:**
+
+```env
+AI_PROVIDER=groq
+```
+
+```env
+AI_PROVIDER=openai
+```
+
+**Use a mixed setup — uncomment and set any agent line:**
+
+```env
+AI_PROVIDER=groq            # fallback for any agent not listed below
+
+MANAGER_PROVIDER=openai
+CODER_PROVIDER=anthropic
+REVIEWER_PROVIDER=anthropic
+# Planner and Researcher are not set → they fall back to groq
+```
+
+**Rules:**
+
+- Any `*_PROVIDER` line that is commented out or missing falls back to `AI_PROVIDER`
+- `AI_PROVIDER` itself falls back to `groq` if not set
+- Valid values: `groq`, `openai`, `anthropic`, `google`
+- Only add API keys for the providers you actually use
+
+Save `.env` and run `python main.py` — the startup banner confirms what each agent will use before any work begins.
 
 ---
 
@@ -122,42 +189,6 @@ Verbose logs also show the provider for every agent call:
 
 ---
 
-## Changing providers — only edit `.env`
-
-You never need to touch the code. All provider routing is controlled from `.env`.
-
-**Use one provider for all agents:**
-
-```env
-AI_PROVIDER=groq
-```
-
-```env
-AI_PROVIDER=openai
-```
-
-**Use a mixed setup — uncomment and set any agent line:**
-
-```env
-AI_PROVIDER=groq            # fallback for any agent not listed below
-
-MANAGER_PROVIDER=openai
-CODER_PROVIDER=anthropic
-REVIEWER_PROVIDER=anthropic
-# Planner and Researcher are not set → they fall back to groq
-```
-
-**Rules:**
-
-- Any `*_PROVIDER` line that is commented out or missing falls back to `AI_PROVIDER`
-- `AI_PROVIDER` itself falls back to `groq` if not set
-- Valid values: `groq`, `openai`, `anthropic`, `google`
-- Only add API keys for the providers you actually use
-
-Save `.env` and run `python main.py` — the startup banner confirms what each agent will use before any work begins.
-
----
-
 ## Provider resolution order
 
 For each agent, the provider is resolved in this priority:
@@ -200,24 +231,24 @@ result = manager.orchestrate("Build a FastAPI todo app")
 
 ```text
 ├── agents/
-│   ├── base_agent.py        # Base class — wraps provider, handles tool loops
-│   ├── manager_agent.py     # Orchestrator — per-agent provider resolution
-│   ├── planner_agent.py     # Task decomposition
-│   ├── research_agent.py    # Information gathering with web search tool
-│   ├── coder_agent.py       # Code generation
-│   └── reviewer_agent.py    # Code review and QA
+│   ├── base_agent.py         # Base class — wraps provider, handles tool loops
+│   ├── manager_agent.py      # Orchestrator — per-agent provider resolution
+│   ├── planner_agent.py      # Task decomposition
+│   ├── research_agent.py     # Information gathering with web search tool
+│   ├── coder_agent.py        # Code generation
+│   └── reviewer_agent.py     # Code review and QA
 ├── providers/
-│   ├── base_provider.py     # Abstract BaseProvider + unified response types
-│   ├── groq_provider.py     # Groq (Llama models)
-│   ├── openai_provider.py   # OpenAI (GPT models)
+│   ├── base_provider.py      # Abstract BaseProvider + unified response types
+│   ├── groq_provider.py      # Groq (Llama models)
+│   ├── openai_provider.py    # OpenAI (GPT models)
 │   ├── anthropic_provider.py # Anthropic (Claude models)
-│   ├── google_provider.py   # Google (Gemini via OpenAI-compatible endpoint)
-│   └── __init__.py          # get_provider() factory
+│   ├── google_provider.py    # Google (Gemini via OpenAI-compatible endpoint)
+│   └── __init__.py           # get_provider() factory
 ├── core/
-│   └── shared_memory.py     # Thread-safe key-value store for cross-agent context
+│   └── shared_memory.py      # Thread-safe key-value store for cross-agent context
 ├── tools/
-│   └── search_tool.py       # Web search tool (mock)
-├── main.py                  # CLI entry point
+│   └── search_tool.py        # Web search tool (mock)
+├── main.py                   # CLI entry point
 ├── requirements.txt
 └── .env
 ```
@@ -237,7 +268,7 @@ Set your API keys and provider config in `.env` before running.
 ## Requirements
 
 - Python 3.10+
-- `groq>=0.8.0`
+- `groq>=1.2.0`
 - `openai>=1.0.0`
 - `anthropic>=0.25.0`
 - `python-dotenv>=1.0.0`
