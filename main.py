@@ -23,6 +23,8 @@ _ENV_KEYS = {
     "claude":    ("ANTHROPIC_API_KEY",  "https://console.anthropic.com/"),
     "google":    ("GOOGLE_API_KEY",     "https://aistudio.google.com/app/apikey"),
     "gemini":    ("GOOGLE_API_KEY",     "https://aistudio.google.com/app/apikey"),
+    # Ollama runs locally — no API key required
+    "ollama":    (None, None),
 }
 
 # Env vars that select a provider per agent
@@ -54,6 +56,8 @@ def check_env(provider_override: str = None) -> bool:
     ok = True
     for prov in providers:
         key_name, key_url = _ENV_KEYS.get(prov, ("GROQ_API_KEY", "https://console.groq.com/keys"))
+        if key_name is None:
+            continue  # provider needs no API key (e.g. ollama)
         if not os.getenv(key_name):
             print(
                 f"Error: {key_name} is not set (required for provider '{prov}').\n"

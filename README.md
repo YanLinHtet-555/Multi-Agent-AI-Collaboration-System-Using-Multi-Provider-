@@ -167,6 +167,7 @@ Each agent can be assigned its own provider. You only need API keys for the prov
 | `openai` | `gpt-4o` | `gpt-4o-mini` | `OPENAI_API_KEY` |
 | `anthropic` | `claude-sonnet-4-6` | `claude-haiku-4-5-20251001` | `ANTHROPIC_API_KEY` |
 | `google` | `gemini-1.5-pro` | `gemini-1.5-flash` | `GOOGLE_API_KEY` |
+| `ollama` | `llama3.1` | `llama3.2` | None (runs locally) |
 
 Best-fit assignment example:
 

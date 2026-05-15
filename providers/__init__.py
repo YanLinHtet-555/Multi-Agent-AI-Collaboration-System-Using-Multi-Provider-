@@ -11,7 +11,7 @@ from .base_provider import (
     ProviderBadRequestError,
 )
 
-SUPPORTED_PROVIDERS = ("groq", "openai", "anthropic", "google")
+SUPPORTED_PROVIDERS = ("groq", "openai", "anthropic", "google", "ollama")
 
 
 def get_provider(name: str = None) -> BaseProvider:
@@ -30,6 +30,9 @@ def get_provider(name: str = None) -> BaseProvider:
     elif provider_name in ("google", "gemini"):
         from .google_provider import GoogleProvider
         return GoogleProvider()
+    elif provider_name == "ollama":
+        from .ollama_provider import OllamaProvider
+        return OllamaProvider()
     else:
         raise ValueError(
             f"Unknown provider: {provider_name!r}. "
