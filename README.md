@@ -31,6 +31,49 @@ FINAL RESULT:
   - Reviewer notes
 ```
 
+### Working flow
+
+```text
+User types a query
+        │
+        ▼
+Manager reads the query
+        │
+        ▼
+Manager calls Planner
+  → Planner breaks the task into phases
+  → Manager stores the plan in Shared Memory
+        │
+        ▼
+Manager calls Researcher
+  → Researcher searches for best practices / info
+  → Manager stores the findings in Shared Memory
+        │
+        ▼
+Manager calls Coder
+  → Coder reads the plan + research from Shared Memory
+  → Coder writes the full implementation
+        │
+        ▼
+Manager calls Reviewer
+  → Reviewer checks the code for bugs, security, quality
+  → Verdict: APPROVED or CHANGES REQUESTED
+        │
+        ├── CHANGES REQUESTED → back to Coder (max 3 cycles)
+        │
+        └── APPROVED
+                │
+                ▼
+        Manager synthesizes everything
+                │
+                ▼
+        FINAL RESULT printed to terminal
+```
+
+Each arrow is one tool call from the Manager. The Manager never writes code or does research itself — it only coordinates, passes context, and decides what happens next.
+
+---
+
 ### What each agent does
 
 | Agent | What it does | Output |
