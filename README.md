@@ -409,6 +409,75 @@ result = manager.orchestrate("Build a FastAPI todo app")
 
 ---
 
+## Frontend UI (FastAPI + React)
+
+A full web interface with a real-time agent activity log, per-agent provider dropdowns, and markdown-rendered results.
+
+### Stack
+
+- **Backend** — FastAPI with Server-Sent Events (SSE) streaming
+- **Frontend** — React + TypeScript + Vite + Tailwind CSS
+
+### Running the UI
+
+#### Terminal 1 — Backend
+
+```bash
+pip install -r requirements.txt
+uvicorn api.app:app --reload --port 8000
+```
+
+#### Terminal 2 — Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open [http://localhost:5173](http://localhost:5173) in your browser.
+
+### What the UI looks like
+
+```text
+┌─────────────────────────────────────────────────────────┐
+│  ● Multi-Agent AI Collaboration System          Ready   │
+├──────────────┬──────────────────────────────────────────┤
+│ Provider     │                                          │
+│ Config       │   (example query cards on first load)    │
+│              │                                          │
+│ Manager groq │   User: Build a FastAPI todo app         │
+│ Planner groq │                                          │
+│ Researcher   │   Assistant: ## Implementation...        │
+│        groq  │   (full markdown-rendered code)          │
+│ Coder  groq  │                                          │
+│ Reviewer     │  ┌─ Agent Activity ───────────────────┐  │
+│        groq  │  │ [Manager/groq] Starting...         │  │
+│              │  │   [Planner/groq] Planning: ...     │  │
+│              │  │   [Coder/groq] Implementing: ...   │  │
+│              │  └────────────────────────────────────┘  │
+│              │  [ Ask the agents anything...      ▶ ]   │
+└──────────────┴──────────────────────────────────────────┘
+```
+
+### Features
+
+- **Live agent logs** — see exactly which agent is working and on which provider, in real time
+- **Provider dropdowns** — change any agent's provider without restarting
+- **Markdown rendering** — code blocks, headers, and lists rendered properly
+- **Example queries** — click-to-fill suggestions on the empty state
+- **Collapsible log panel** — hide agent activity once the result arrives
+- **Keyboard shortcut** — Enter to send, Shift+Enter for newline
+
+### Production build
+
+```bash
+cd frontend && npm run build   # outputs to frontend/dist/
+uvicorn api.app:app --port 8000  # serves React app + API on same port
+```
+
+---
+
 ## Docker
 
 ```bash

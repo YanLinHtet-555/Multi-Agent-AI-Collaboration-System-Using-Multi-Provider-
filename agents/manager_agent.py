@@ -216,7 +216,7 @@ class ManagerAgent:
         return calls
 
     def _recover_from_bad_request(
-        self, error: ProviderBadRequestError, messages: list, verbose: bool
+        self, error: ProviderBadRequestError, messages: list, log
     ) -> list | None:
         """Attempt to recover from a malformed tool call (Groq/Llama specific)."""
         failed_gen = error.body.get("error", {}).get("failed_generation", "")
@@ -229,9 +229,8 @@ class ManagerAgent:
 
         tool_results = []
         for name, args in calls:
-            if verbose:
-                print(f"\n[Manager] Recovering malformed tool call: {name}")
-            result = self._execute_tool(name, args, verbose)
+            log(f"\n[Manager] Recovering malformed tool call: {name}")
+            result = self._execute_tool(name, args, log)
             if len(result) > 1500:
                 result = result[:1500] + "\n\n[...truncated...]"
             tool_results.append(f"Tool '{name}' result:\n{result}")
@@ -246,9 +245,14 @@ class ManagerAgent:
         })
         return messages
 
-    def orchestrate(self, user_query: str, verbose: bool = True) -> str:
-        if verbose:
-            print(f"\n[Manager/{self.provider.name}] Starting orchestration for: {user_query[:80]}...")
+    def orchestrate(self, user_query: str, verbose: bool = True, on_update=None) -> str:
+        def log(msg: str):
+            if verbose:
+                print(msg)
+            if on_update:
+                on_update({"type": "agent_log", "message": msg.strip()})
+
+        log(f"\n[Manager/{self.provider.name}] Starting orchestration for: {user_query[:80]}...")
 
         messages = [
             {"role": "system", "content": MANAGER_SYSTEM_PROMPT},
@@ -271,19 +275,17 @@ class ManagerAgent:
                     break
                 except ProviderRateLimitError as e:
                     wait = 2 ** attempt
-                    if verbose:
-                        print(f"\n[Manager] Rate limited — retrying in {wait}s...")
+                    log(f"\n[Manager] Rate limited — retrying in {wait}s...")
                     time.sleep(wait)
                     if attempt == 2:
                         return last_text or str(e)
                 except ProviderBadRequestError as e:
-                    recovered = self._recover_from_bad_request(e, messages, verbose)
+                    recovered = self._recover_from_bad_request(e, messages, log)
                     if recovered is not None:
                         messages = recovered
                         response = None
                         break
-                    if verbose:
-                        print(f"\n[Manager] Unrecoverable error: {e}")
+                    log(f"\n[Manager] Unrecoverable error: {e}")
                     return last_text or str(e)
             else:
                 continue
@@ -313,16 +315,14 @@ class ManagerAgent:
             messages.append(assistant_msg)
 
             if choice.finish_reason == "stop":
-                if verbose:
-                    print(f"\n[Manager] Orchestration complete after {iteration} iteration(s).")
+                log(f"\n[Manager] Orchestration complete after {iteration} iteration(s).")
                 return message.content or last_text
 
             if choice.finish_reason == "tool_calls" and message.tool_calls:
                 for tc in message.tool_calls:
-                    if verbose:
-                        print(f"\n[Manager] → Calling tool: {tc.function.name}")
+                    log(f"\n[Manager] → Calling tool: {tc.function.name}")
                     tool_input = json.loads(tc.function.arguments)
-                    result = self._execute_tool(tc.function.name, tool_input, verbose)
+                    result = self._execute_tool(tc.function.name, tool_input, log)
                     if len(result) > 1500:
                         result = result[:1500] + "\n\n[...truncated...]"
                     messages.append({
@@ -335,43 +335,37 @@ class ManagerAgent:
 
         return last_text or "Orchestration reached maximum iterations without completing."
 
-    def _execute_tool(self, tool_name: str, tool_input: dict, verbose: bool) -> str:
+    def _execute_tool(self, tool_name: str, tool_input: dict, log) -> str:
         task = tool_input.get("task", "")
         context = tool_input.get("context", "")
 
         if tool_name == "call_planner":
-            if verbose:
-                print(f"  [Planner/{self.planner.provider.name}] Planning: {task[:60]}...")
+            log(f"  [Planner/{self.planner.provider.name}] Planning: {task[:60]}...")
             return self.planner.run(task, context)
 
         elif tool_name == "call_researcher":
-            if verbose:
-                print(f"  [Researcher/{self.researcher.provider.name}] Researching: {task[:60]}...")
+            log(f"  [Researcher/{self.researcher.provider.name}] Researching: {task[:60]}...")
             return self.researcher.run_with_tools(task, context)
 
         elif tool_name == "call_coder":
-            if verbose:
-                print(f"  [Coder/{self.coder.provider.name}] Implementing: {task[:60]}...")
+            log(f"  [Coder/{self.coder.provider.name}] Implementing: {task[:60]}...")
             return self.coder.run(task, context)
 
         elif tool_name == "call_reviewer":
-            if verbose:
-                print(f"  [Reviewer/{self.reviewer.provider.name}] Reviewing submission...")
+            log(f"  [Reviewer/{self.reviewer.provider.name}] Reviewing submission...")
             return self.reviewer.run(task, context)
 
         elif tool_name == "store_memory":
             key = tool_input.get("key", "")
             value = tool_input.get("value", "")
             self.shared_memory.write(key, value, author=self.name)
-            if verbose:
-                print(f"  [Memory] Stored key: '{key}'")
+            log(f"  [Memory] Stored key: '{key}'")
             return f"Successfully stored '{key}' in shared memory."
 
         elif tool_name == "read_memory":
             key = tool_input.get("key", "")
             value = self.shared_memory.read(key)
-            if verbose:
-                print(f"  [Memory] Read key: '{key}'")
+            log(f"  [Memory] Read key: '{key}'")
             if value:
                 return value
             return f"No entry found for key '{key}' in shared memory."
