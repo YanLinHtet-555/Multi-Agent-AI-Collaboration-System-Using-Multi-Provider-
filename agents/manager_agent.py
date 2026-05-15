@@ -197,11 +197,44 @@ class ManagerAgent:
         return messages[:2] + messages[-window:]
 
     @staticmethod
+    def _parse_text_tool_calls(text: str) -> list:
+        """Parse tool calls embedded as plain JSON by local models (e.g. Ollama/Qwen).
+
+        Handles: {"name": "call_planner", "arguments": {...}}
+        """
+        valid = frozenset(t["function"]["name"] for t in MANAGER_TOOLS)
+        calls = []
+        for match in re.finditer(r'\{', text):
+            start = match.start()
+            depth, end = 0, start
+            for i, ch in enumerate(text[start:], start):
+                if ch == '{':
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+            try:
+                obj = json.loads(text[start:end])
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if (
+                isinstance(obj, dict)
+                and isinstance(obj.get("name"), str)
+                and isinstance(obj.get("arguments"), dict)
+                and obj["name"] in valid
+            ):
+                calls.append((obj["name"], obj["arguments"]))
+        return calls
+
+    @staticmethod
     def _parse_llama_tool_calls(text: str) -> list:
         """Parse Llama-style function call variants from text (Groq recovery only)."""
         calls = []
         for pattern in [
             r'<function=(\w+)\((\{.+?\})\)\s*>',
+            r'<function=(\w+)":\s*(\{.+?\})\s*</function>',
             r'<function=(\w+),(\{.+?\})\s*</function>',
             r'<function=(\w+),(\{.+?\})\s*>',
             r'<function=(\w+),(\{.+?\})',
@@ -264,13 +297,18 @@ class ManagerAgent:
         while iteration < self.MAX_ITERATIONS:
             iteration += 1
 
+            # First iteration: force a tool call so small local models don't
+            # short-circuit by answering directly. Fall back to "auto" if the
+            # provider/model doesn't support "required".
+            tool_choice = "required" if iteration == 1 else "auto"
+
             for attempt in range(3):
                 try:
                     response = self.provider.create_chat_completion(
                         model=self.model,
                         messages=self._trim_messages(messages),
                         tools=MANAGER_TOOLS,
-                        tool_choice="auto",
+                        tool_choice=tool_choice,
                     )
                     break
                 except ProviderRateLimitError as e:
@@ -280,6 +318,11 @@ class ManagerAgent:
                     if attempt == 2:
                         return last_text or str(e)
                 except ProviderBadRequestError as e:
+                    if tool_choice == "required":
+                        # Model doesn't support "required" — retry with "auto"
+                        log(f"\n[Manager] 'required' tool_choice not supported, retrying with 'auto'...")
+                        tool_choice = "auto"
+                        continue
                     recovered = self._recover_from_bad_request(e, messages, log)
                     if recovered is not None:
                         messages = recovered
@@ -315,6 +358,29 @@ class ManagerAgent:
             messages.append(assistant_msg)
 
             if choice.finish_reason == "stop":
+                # Local models (Ollama/Qwen) sometimes output tool calls as
+                # plain JSON text instead of structured tool_calls. Detect and
+                # execute them so the pipeline continues normally.
+                text_calls = self._parse_text_tool_calls(message.content or "")
+                if text_calls:
+                    log(f"\n[Manager] Detected {len(text_calls)} text-embedded tool call(s) — executing...")
+                    tool_results = []
+                    for name, args in text_calls:
+                        log(f"\n[Manager] → Calling tool: {name}")
+                        result = self._execute_tool(name, args, log)
+                        if len(result) > 1500:
+                            result = result[:1500] + "\n\n[...truncated...]"
+                        tool_results.append(f"Tool '{name}' result:\n{result}")
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "Tool execution results:\n"
+                            + "\n\n".join(tool_results)
+                            + "\n\nContinue the orchestration."
+                        ),
+                    })
+                    continue
+
                 log(f"\n[Manager] Orchestration complete after {iteration} iteration(s).")
                 return message.content or last_text
 

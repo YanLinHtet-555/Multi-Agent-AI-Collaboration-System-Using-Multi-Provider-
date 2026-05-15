@@ -2,6 +2,7 @@ import os
 from typing import Dict, List, Optional
 
 from openai import OpenAI
+from openai import APIConnectionError as OpenAIConnectionError
 from openai import BadRequestError as OpenAIBadRequestError
 from openai import RateLimitError as OpenAIRateLimitError
 
@@ -74,6 +75,15 @@ class OllamaProvider(BaseProvider):
                 finish_reason=choice.finish_reason,
             )])
 
+        except OpenAIConnectionError as e:
+            base_url = os.getenv("OLLAMA_BASE_URL", _DEFAULT_BASE_URL)
+            raise ProviderBadRequestError(
+                f"Cannot connect to Ollama at {base_url}. "
+                "Make sure Ollama is running. "
+                "If using Docker, set OLLAMA_BASE_URL=http://host.docker.internal:11434/v1 "
+                "instead of localhost.",
+                body={},
+            ) from e
         except OpenAIRateLimitError as e:
             raise ProviderRateLimitError(str(e)) from e
         except OpenAIBadRequestError as e:
